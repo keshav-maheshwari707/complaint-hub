@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ComplaintHub — Login</title>
+<meta name="description" content="Modern complaint management system. Login or sign up to submit and track complaints." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="brand">
+      <div class="brand-logo">C</div>
+      <div class="brand-name">ComplaintHub</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="login">Login</div>
+      <div class="tab" data-tab="signup">Sign Up</div>
+    </div>
+
+    <!-- LOGIN -->
+    <form id="loginForm">
+      <h1>Welcome back</h1>
+      <p class="sub">Sign in to access your dashboard</p>
+      <div class="field"><label>Email</label><input type="email" name="email" required placeholder="you@example.com"/></div>
+      <div class="field"><label>Password</label><input type="password" name="password" required placeholder="••••••••"/></div>
+      <div class="field"><label>Role</label>
+        <select name="role" required>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit"><span>Login</span></button>
+      <div class="center"><button type="button" class="link" id="forgotBtn">Forgot password?</button></div>
+    </form>
+
+    <!-- SIGNUP -->
+    <form id="signupForm" style="display:none">
+      <h1>Create account</h1>
+      <p class="sub">Get started with ComplaintHub in seconds</p>
+      <div class="field"><label>Full Name</label><input type="text" name="name" required placeholder="Jane Doe"/></div>
+      <div class="field"><label>Email</label><input type="email" name="email" required placeholder="you@example.com"/></div>
+      <div class="field"><label>Password</label><input type="password" name="password" required minlength="4" placeholder="At least 4 characters"/></div>
+      <div class="field"><label>Register as</label>
+        <select name="role" required>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">Create account</button>
+    </form>
+  </div>
+</div>
+
+<!-- Forgot password modal -->
+<div class="modal-bg" id="forgotModal">
+  <div class="modal">
+    <h3>Reset password</h3>
+    <form id="forgotForm">
+      <div class="field"><label>Email</label><input type="email" name="email" required/></div>
+      <div class="field"><label>New password</label><input type="password" name="password" required minlength="4"/></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="forgotCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="width:auto">Reset</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm modal (shared) -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <h3>Are you sure?</h3>
+    <p id="confirmMsg" style="color:var(--muted);font-size:14px"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="confirmNo">Cancel</button>
+      <button class="btn btn-danger" id="confirmYes">Yes, continue</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+<script>
+  // Already logged in? Redirect.
+  const s = CMS.Storage.getSession();
+  if (s) window.location.href = s.role === 'admin' ? 'admin.html' : 'dashboard.html';
+
+  const tabs = document.querySelectorAll('.tab');
+  const loginForm = document.getElementById('loginForm');
+  const signupForm = document.getElementById('signupForm');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    const isLogin = t.dataset.tab === 'login';
+    loginForm.style.display = isLogin ? 'block' : 'none';
+    signupForm.style.display = isLogin ? 'none' : 'block';
+  }));
+
+  loginForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(loginForm);
+    const btn = loginForm.querySelector('button[type=submit]');
+    btn.innerHTML = '<span class="loader"></span>';
+    setTimeout(() => {
+      try {
+        const u = CMS.Auth.login({ email: fd.get('email'), password: fd.get('password'), role: fd.get('role') });
+        CMS.toast('Welcome back, ' + u.name);
+        setTimeout(() => window.location.href = u.role === 'admin' ? 'admin.html' : 'dashboard.html', 400);
+      } catch (err) { CMS.toast(err.message, 'error'); btn.innerHTML = 'Login'; }
+    }, 350);
+  });
+
+  signupForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(signupForm);
+    try {
+      const u = CMS.Auth.signup({ name: fd.get('name'), email: fd.get('email'), password: fd.get('password'), role: fd.get('role') });
+      CMS.Auth.login({ email: u.email, password: fd.get('password'), role: u.role });
+      CMS.toast('Account created!');
+      setTimeout(() => window.location.href = u.role === 'admin' ? 'admin.html' : 'dashboard.html', 400);
+    } catch (err) { CMS.toast(err.message, 'error'); }
+  });
+
+  // Forgot password
+  const fm = document.getElementById('forgotModal');
+  document.getElementById('forgotBtn').onclick = () => fm.classList.add('show');
+  document.getElementById('forgotCancel').onclick = () => fm.classList.remove('show');
+  document.getElementById('forgotForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      CMS.Auth.resetPassword(fd.get('email'), fd.get('password'));
+      CMS.toast('Password reset successful');
+      fm.classList.remove('show'); e.target.reset();
+    } catch (err) { CMS.toast(err.message, 'error'); }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>My Complaints — ComplaintHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-logo">C</div><div class="brand-name">ComplaintHub</div></div>
+    <div class="topbar-right">
+      <div class="user-chip"><div class="avatar" id="avatar"></div><span id="userName"></span></div>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="page-head">
+      <div>
+        <h2>My Complaints</h2>
+        <p>Submit and track your complaints in one place.</p>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <section class="card">
+      <h3>📝 Submit a new complaint</h3>
+      <form id="complaintForm">
+        <div class="row">
+          <div class="field"><label>Title</label><input name="title" required placeholder="Short summary"/></div>
+          <div class="field"><label>Category</label>
+            <select name="category" required>
+              <option value="Hostel">Hostel</option>
+              <option value="Fan">Fan</option>
+              <option value="AC">AC</option>
+              <option value="Water">Water</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Description</label><textarea name="description" rows="3" required placeholder="Describe the issue..."></textarea></div>
+        <button class="btn btn-primary" type="submit" style="width:auto">Submit complaint</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h3>📋 Your complaints</h3>
+      <div class="filters">
+        <input id="searchInput" placeholder="🔍 Search by title or ID..."/>
+        <select id="filterStatus">
+          <option value="">All statuses</option>
+          <option>Pending</option><option>In Progress</option><option>Resolved</option>
+        </select>
+        <select id="filterCategory">
+          <option value="">All categories</option>
+          <option>Hostel</option><option>Fan</option><option>AC</option><option>Water</option><option>Other</option>
+        </select>
+      </div>
+      <div class="complaint-list" id="list"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Edit modal -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3>Edit complaint</h3>
+    <form id="editForm">
+      <input type="hidden" name="id"/>
+      <div class="field"><label>Title</label><input name="title" required/></div>
+      <div class="field"><label>Category</label>
+        <select name="category" required>
+          <option>Hostel</option><option>Fan</option><option>AC</option><option>Water</option><option>Other</option>
+        </select>
+      </div>
+      <div class="field"><label>Description</label><textarea name="description" rows="3" required></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="editCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="width:auto">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <h3>Are you sure?</h3>
+    <p id="confirmMsg" style="color:var(--muted);font-size:14px"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="confirmNo">Cancel</button>
+      <button class="btn btn-danger" id="confirmYes">Yes, continue</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+<script>
+  const session = CMS.Auth.guard('user');
+  if (session) {
+    document.getElementById('userName').textContent = session.name;
+    document.getElementById('avatar').textContent = CMS.initials(session.name);
+  }
+  document.getElementById('logoutBtn').onclick = () => CMS.Auth.logout();
+
+  const listEl = document.getElementById('list');
+  const statsEl = document.getElementById('stats');
+  const search = document.getElementById('searchInput');
+  const fStatus = document.getElementById('filterStatus');
+  const fCat = document.getElementById('filterCategory');
+
+  function render() {
+    const mine = CMS.Complaints.byUser(session.id);
+    const stats = {
+      total: mine.length,
+      pending: mine.filter(c => c.status === 'Pending').length,
+      progress: mine.filter(c => c.status === 'In Progress').length,
+      resolved: mine.filter(c => c.status === 'Resolved').length,
+    };
+    statsEl.innerHTML = `
+      <div class="stat total"><div class="stat-icon">📊</div><div class="stat-label">Total</div><div class="stat-value">${stats.total}</div></div>
+      <div class="stat pending"><div class="stat-icon">⏳</div><div class="stat-label">Pending</div><div class="stat-value">${stats.pending}</div></div>
+      <div class="stat progress"><div class="stat-icon">🔧</div><div class="stat-label">In Progress</div><div class="stat-value">${stats.progress}</div></div>
+      <div class="stat resolved"><div class="stat-icon">✅</div><div class="stat-label">Resolved</div><div class="stat-value">${stats.resolved}</div></div>
+    `;
+
+    const q = search.value.toLowerCase().trim();
+    const filtered = mine.filter(c =>
+      (!fStatus.value || c.status === fStatus.value) &&
+      (!fCat.value || c.category === fCat.value) &&
+      (!q || c.title.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))
+    );
+
+    if (!filtered.length) {
+      listEl.innerHTML = `<div class="empty"><div class="icon">📭</div><p>No complaints found.</p></div>`;
+      return;
+    }
+    listEl.innerHTML = filtered.map(c => `
+      <article class="complaint">
+        <div>
+          <div class="complaint-head">
+            <span class="complaint-id">${c.id}</span>
+            ${CMS.badge(c.status)}
+            <span class="badge badge-cat">${c.category}</span>
+          </div>
+          <h4>${escapeHtml(c.title)}</h4>
+          <p class="desc">${escapeHtml(c.description)}</p>
+          ${c.remarks ? `<div class="remarks"><strong>Admin remarks:</strong> ${escapeHtml(c.remarks)}</div>` : ''}
+          <div class="meta"><span>📅 ${CMS.formatDate(c.date)}</span></div>
+        </div>
+        <div class="actions">
+          ${c.status === 'Pending' ? `<button class="btn btn-secondary btn-sm" data-edit="${c.id}">✏️ Edit</button>` : ''}
+          <button class="btn btn-danger btn-sm" data-del="${c.id}">🗑 Delete</button>
+        </div>
+      </article>
+    `).join('');
+
+    listEl.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openEdit(b.dataset.edit));
+    listEl.querySelectorAll('[data-del]').forEach(b => b.onclick = () =>
+      CMS.confirmDialog('This complaint will be permanently deleted.', () => {
+        CMS.Complaints.delete(b.dataset.del); CMS.toast('Complaint deleted', 'warn'); render();
+      })
+    );
+  }
+
+  function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  document.getElementById('complaintForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    CMS.Complaints.create({
+      title: fd.get('title'), description: fd.get('description'), category: fd.get('category'),
+      userId: session.id, userName: session.name, userEmail: session.email
+    });
+    e.target.reset(); CMS.toast('Complaint submitted'); render();
+  });
+
+  [search, fStatus, fCat].forEach(el => el.addEventListener('input', render));
+
+  // edit
+  const editModal = document.getElementById('editModal');
+  const editForm = document.getElementById('editForm');
+  function openEdit(id) {
+    const c = CMS.Complaints.byUser(session.id).find(x => x.id === id);
+    if (!c) return;
+    editForm.id.value = c.id; editForm.title.value = c.title;
+    editForm.category.value = c.category; editForm.description.value = c.description;
+    editModal.classList.add('show');
+  }
+  document.getElementById('editCancel').onclick = () => editModal.classList.remove('show');
+  editForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(editForm);
+    CMS.Complaints.update(fd.get('id'), { title: fd.get('title'), category: fd.get('category'), description: fd.get('description') });
+    editModal.classList.remove('show'); CMS.toast('Complaint updated'); render();
+  });
+
+  render();
+</script>
+</body>
+</html>

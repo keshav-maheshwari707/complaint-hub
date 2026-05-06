@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Admin Panel — ComplaintHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-logo">C</div><div class="brand-name">ComplaintHub <span style="color:var(--muted);font-weight:500;font-size:13px">· Admin</span></div></div>
+    <div class="topbar-right">
+      <div class="user-chip"><div class="avatar" id="avatar"></div><span id="userName"></span></div>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="page-head">
+      <div>
+        <h2>Admin Panel</h2>
+        <p>Manage and respond to complaints from all users.</p>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <section class="card">
+      <h3>📥 All complaints</h3>
+      <div class="filters">
+        <input id="searchInput" placeholder="🔍 Search by title, user, or ID..."/>
+        <select id="filterStatus">
+          <option value="">All statuses</option>
+          <option>Pending</option><option>In Progress</option><option>Resolved</option>
+        </select>
+        <select id="filterCategory">
+          <option value="">All categories</option>
+          <option>Hostel</option><option>Fan</option><option>AC</option><option>Water</option><option>Other</option>
+        </select>
+        <select id="sortBy">
+          <option value="date_desc">Newest first</option>
+          <option value="date_asc">Oldest first</option>
+          <option value="status">By status</option>
+        </select>
+      </div>
+      <div class="complaint-list" id="list"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Manage modal -->
+<div class="modal-bg" id="manageModal">
+  <div class="modal">
+    <h3>Manage complaint</h3>
+    <form id="manageForm">
+      <input type="hidden" name="id"/>
+      <div class="field"><label>Status</label>
+        <select name="status">
+          <option>Pending</option><option>In Progress</option><option>Resolved</option>
+        </select>
+      </div>
+      <div class="field"><label>Remarks / comments</label><textarea name="remarks" rows="3" placeholder="Optional notes for the user..."></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="manageCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="width:auto">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <h3>Are you sure?</h3>
+    <p id="confirmMsg" style="color:var(--muted);font-size:14px"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="confirmNo">Cancel</button>
+      <button class="btn btn-danger" id="confirmYes">Yes, continue</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+<script>
+  const session = CMS.Auth.guard('admin');
+  if (session) {
+    document.getElementById('userName').textContent = session.name;
+    document.getElementById('avatar').textContent = CMS.initials(session.name);
+  }
+  document.getElementById('logoutBtn').onclick = () => CMS.Auth.logout();
+
+  const listEl = document.getElementById('list');
+  const statsEl = document.getElementById('stats');
+  const search = document.getElementById('searchInput');
+  const fStatus = document.getElementById('filterStatus');
+  const fCat = document.getElementById('filterCategory');
+  const sortBy = document.getElementById('sortBy');
+
+  function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+  function render() {
+    const all = CMS.Complaints.all();
+    const stats = {
+      total: all.length,
+      pending: all.filter(c => c.status === 'Pending').length,
+      progress: all.filter(c => c.status === 'In Progress').length,
+      resolved: all.filter(c => c.status === 'Resolved').length,
+    };
+    statsEl.innerHTML = `
+      <div class="stat total"><div class="stat-icon">📊</div><div class="stat-label">Total</div><div class="stat-value">${stats.total}</div></div>
+      <div class="stat pending"><div class="stat-icon">⏳</div><div class="stat-label">Pending</div><div class="stat-value">${stats.pending}</div></div>
+      <div class="stat progress"><div class="stat-icon">🔧</div><div class="stat-label">In Progress</div><div class="stat-value">${stats.progress}</div></div>
+      <div class="stat resolved"><div class="stat-icon">✅</div><div class="stat-label">Resolved</div><div class="stat-value">${stats.resolved}</div></div>
+    `;
+
+    const q = search.value.toLowerCase().trim();
+    let filtered = all.filter(c =>
+      (!fStatus.value || c.status === fStatus.value) &&
+      (!fCat.value || c.category === fCat.value) &&
+      (!q || c.title.toLowerCase().includes(q) || c.id.toLowerCase().includes(q) ||
+        (c.userName||'').toLowerCase().includes(q) || (c.userEmail||'').toLowerCase().includes(q))
+    );
+    const sortMap = { Pending: 0, 'In Progress': 1, Resolved: 2 };
+    if (sortBy.value === 'date_asc') filtered.sort((a,b) => new Date(a.date) - new Date(b.date));
+    else if (sortBy.value === 'status') filtered.sort((a,b) => sortMap[a.status] - sortMap[b.status]);
+    else filtered.sort((a,b) => new Date(b.date) - new Date(a.date));
+
+    if (!filtered.length) {
+      listEl.innerHTML = `<div class="empty"><div class="icon">📭</div><p>No complaints found.</p></div>`;
+      return;
+    }
+    listEl.innerHTML = filtered.map(c => `
+      <article class="complaint">
+        <div>
+          <div class="complaint-head">
+            <span class="complaint-id">${c.id}</span>
+            ${CMS.badge(c.status)}
+            <span class="badge badge-cat">${c.category}</span>
+          </div>
+          <h4>${escapeHtml(c.title)}</h4>
+          <p class="desc">${escapeHtml(c.description)}</p>
+          ${c.remarks ? `<div class="remarks"><strong>Remarks:</strong> ${escapeHtml(c.remarks)}</div>` : ''}
+          <div class="meta">
+            <span>👤 ${escapeHtml(c.userName)} · ${escapeHtml(c.userEmail)}</span>
+            <span>📅 ${CMS.formatDate(c.date)}</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary btn-sm" data-manage="${c.id}" style="width:auto">⚙️ Manage</button>
+          <button class="btn btn-danger btn-sm" data-del="${c.id}">🗑 Delete</button>
+        </div>
+      </article>
+    `).join('');
+
+    listEl.querySelectorAll('[data-manage]').forEach(b => b.onclick = () => openManage(b.dataset.manage));
+    listEl.querySelectorAll('[data-del]').forEach(b => b.onclick = () =>
+      CMS.confirmDialog('This complaint will be permanently deleted.', () => {
+        CMS.Complaints.delete(b.dataset.del); CMS.toast('Complaint deleted','warn'); render();
+      })
+    );
+  }
+
+  [search, fStatus, fCat, sortBy].forEach(el => el.addEventListener('input', render));
+
+  const manageModal = document.getElementById('manageModal');
+  const manageForm = document.getElementById('manageForm');
+  function openManage(id) {
+    const c = CMS.Complaints.all().find(x => x.id === id);
+    if (!c) return;
+    manageForm.id.value = c.id; manageForm.status.value = c.status; manageForm.remarks.value = c.remarks || '';
+    manageModal.classList.add('show');
+  }
+  document.getElementById('manageCancel').onclick = () => manageModal.classList.remove('show');
+  manageForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(manageForm);
+    CMS.Complaints.update(fd.get('id'), { status: fd.get('status'), remarks: fd.get('remarks') });
+    manageModal.classList.remove('show'); CMS.toast('Complaint updated'); render();
+  });
+
+  render();
+</script>
+</body>
+</html>
